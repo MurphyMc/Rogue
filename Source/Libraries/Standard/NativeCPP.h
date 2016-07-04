@@ -40,6 +40,7 @@
 #define ROGUE_DEF_LOCAL_REF(_t_,_n_, _v_) _t_ _n_ = _v_
 #define ROGUE_DEF_LOCAL_REF_NULL(_t_,_n_) _t_ _n_ = 0
 #define ROGUE_CREATE_REF(_t_,_n_) ((_t_)_n_)
+#define ROGUE_REF_TYPE(_t_) _t_
 #define ROGUE_ARG(_a_) _a_
 #define ROGUE_DEF_COMPOUND_REF_PROP(_t_,_n_) RoguePtr<_t_> _n_
 
@@ -96,6 +97,8 @@ extern void Rogue_configure_gc();
   #define ROGUE_DEF_LOCAL_REF(_t_,_n_, _v_) RoguePtr<_t_> _n_(_v_);
   #undef ROGUE_ARG
   #define ROGUE_ARG(_a_) rogue_ptr(_a_)
+  #undef ROGUE_REF_TYPE
+  #define ROGUE_REF_TYPE(_t_) RoguePtr<_t_>
 #endif
 
 
@@ -489,7 +492,6 @@ extern RogueTraceFn       Rogue_trace_fn_table[];
 extern RogueCleanUpFn     Rogue_clean_up_fn_table[];
 extern int                Rogue_literal_string_count;
 extern RogueString*       Rogue_literal_strings[];
-extern RogueObject*       Rogue_error_object;
 extern RogueLogical       Rogue_configured;
 extern int                Rogue_argc;
 extern const char**       Rogue_argv;
@@ -531,6 +533,7 @@ void Rogue_print_stack_trace ( bool leading_newline=false);
 //-----------------------------------------------------------------------------
 //  Error Handling
 //-----------------------------------------------------------------------------
+extern ROGUE_REF_TYPE(RogueObject*) Rogue_error_object;
 #define ROGUE_TRY \
   try \
   {
@@ -545,17 +548,21 @@ void Rogue_print_stack_trace ( bool leading_newline=false);
   }
 
 #define ROGUE_THROW(_error_object) \
-  throw RogueCPPException( _error_object );
+  throw RogueCPPException::create( ROGUE_ARG(_error_object) );
 
 
 struct RogueCPPException
 {
-  RogueObject * err;
+  ROGUE_DEF_LOCAL_REF_NULL(RogueObject*, err);
   RogueCPPException ( RogueObject * err )
   : err(err)
   {
     Rogue_error_object = err;
     RogueObject_retain( err );
+  }
+  static RogueCPPException create ( RogueObject * err )
+  {
+    return RogueCPPException(err);
   }
   ~RogueCPPException ()
   {

@@ -63,7 +63,6 @@
 //-----------------------------------------------------------------------------
 int                Rogue_gc_threshold = ROGUE_GC_THRESHOLD_DEFAULT;
 RogueLogical       Rogue_configured = 0;
-RogueObject*       Rogue_error_object  = 0;
 int                Rogue_allocation_bytes_until_gc = Rogue_gc_threshold;
 int                Rogue_argc;
 const char**       Rogue_argv;
@@ -1116,6 +1115,8 @@ void Rogue_Boehm_DecRef (RogueObject* o)
 //-----------------------------------------------------------------------------
 //  Exception handling
 //-----------------------------------------------------------------------------
+ROGUE_REF_TYPE(RogueObject*)       Rogue_error_object  = 0;
+
 void Rogue_terminate_handler ()
 {
   if (Rogue_error_object && Rogue_error_object->type)
