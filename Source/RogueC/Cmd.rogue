@@ -2142,6 +2142,9 @@ class CmdReadLocal : Cmd
     method type->Type
       return local_info.type
 
+    method to->String
+      return "($ $:$)" (type_name, local_info.original_name, local_info.type.name)
+
 endClass
 
 
