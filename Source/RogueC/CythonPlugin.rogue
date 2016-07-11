@@ -280,7 +280,7 @@ class CyClass
       endIf
       if n.begins_with('to_') and n.ends_with('[]')
         # This probably isn't general enough (list of lists?)
-        return n.trimmed(&right=2) + '_array'
+        return n.clipped(&right=2) + '_array'
       endIf
       return n
 
