@@ -1942,6 +1942,10 @@ augment Local
       return _parameter_cpp_name
 
     method parameter_needs_gc->Logical
+      #NOTE: We could always return false here if not in auto GC mode.  This
+      #      might be slightly more efficient (especially if there was no C++
+      #      optimization), but would mean that you couldn't switch GC mode
+      #      by just tweaking defines in the output .h file.
       return is_modified and type.is_reference
 endAugment
 
