@@ -32,6 +32,7 @@ class Attribute
     is_preferred        = 1 :<<: 24
     is_nonAPI           = 1 :<<: 25
     is_deprecated       = 1 :<<: 26
+    is_thread_local     = 1 :<<: 27
 endClass
 
 
