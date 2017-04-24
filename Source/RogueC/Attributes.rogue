@@ -33,6 +33,8 @@ class Attribute
     is_nonAPI           = 1 :<<: 25
     is_deprecated       = 1 :<<: 26
     is_thread_local     = 1 :<<: 27
+    is_synchronized     = 1 :<<: 28
+    is_synchronizable   = 1 :<<: 29
 endClass
 
 
