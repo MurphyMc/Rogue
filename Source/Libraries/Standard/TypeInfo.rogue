@@ -354,30 +354,40 @@ class MethodInfo
       return r
 
     method call (o:Object)
+      assert(_return_type == -1 || "Method returns a value.  Invoke using .returns<<return_type>>.call().")
       _check_count(0)
       native "((void (*)(RogueObject*))($this->fn_ptr))($o);"
 
     method call<<$T1>> (o:Object,t1:$T1)
+      assert(_return_type == -1 || "Method returns a value.  Invoke using .returns<<return_type>>.call().")
       _check_count(1)
       native "((void (*)(RogueObject*,$(t1.type)))($this->fn_ptr))($o,$t1);"
 
     method call<<$T1,$T2>> (o:Object,t1:$T1,t2:$T2)
+      assert(_return_type == -1 || "Method returns a value.  Invoke using .returns<<return_type>>.call().")
       _check_count(2)
       native "((void (*)(RogueObject*,$(t1.type),$(t2.type)))($this->fn_ptr))($o,$t1,$t2);"
 
     method call<<$T1,$T2,$T3>> (o:Object,t1:$T1,t2:$T2,t3:$T3)
+      assert(_return_type == -1 || "Method returns a value.  Invoke using .returns<<return_type>>.call().")
       _check_count(3)
       native "((void (*)(RogueObject*,$(t1.type),$(t2.type),$(t3.type)))($this->fn_ptr))($o,$t1,$t2,$t3);"
 
     method call<<$T1,$T2,$T3,$T4>> (o:Object,t1:$T1,t2:$T2,t3:$T3,t4:$T4)
+      assert(_return_type == -1 || "Method returns a value.  Invoke using .returns<<return_type>>.call().")
       _check_count(4)
       native "((void (*)(RogueObject*,$(t1.type),$(t2.type),$(t3.type),$(t4.type)))($this->fn_ptr))($o,$t1,$t2,$t3,$t4);"
 
     method call<<$T1,$T2,$T3,$T4,$T5>> (o:Object,t1:$T1,t2:$T2,t3:$T3,t4:$T4,t5:$T5)
+      assert(_return_type == -1 || "Method returns a value.  Invoke using .returns<<return_type>>.call().")
       _check_count(5)
       native "((void (*)(RogueObject*,$(t1.type),$(t2.type),$(t3.type),$(t4.type),$(t5.type)))($this->fn_ptr))($o,$t1,$t2,$t3,$t4,$t5);"
 
     method returns<<$RT>> () -> MethodWithReturnValueCaller<<$RT>>
-      assert(<<$RT>> is return_type)
+      if ($RT isReference)
+        assert(return_type.is_subclass(<<$RT>>))
+      else
+        assert(<<$RT>> is return_type)
+      endIf
       return MethodWithReturnValueCaller<<$RT>>(this)
 endClass
