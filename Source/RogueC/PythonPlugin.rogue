@@ -1828,7 +1828,6 @@ augment Program
           else
             nextIteration
           endIf
-          if (not m.return_type) nextIteration
           if (not m.type_context) nextIteration
 
           local m2 = Method(m.t, m.type_context, "_pyrogue_macro_" + m.name + "_")
@@ -1857,7 +1856,11 @@ augment Program
             m2.attributes.flags |= Attribute.is_essential
           endIf
 
-          m2.statements.add(CmdReturn(m.t, CmdAccess(m.t, m.name, args)))
+          if (m.return_type)
+            m2.statements.add(CmdReturn(m.t, CmdAccess(m.t, m.name, args)))
+          else
+            m2.statements.add(CmdAccess(m.t, m.name, args))
+          endIf
 
           type.add_method(m2)
           m2.organize
