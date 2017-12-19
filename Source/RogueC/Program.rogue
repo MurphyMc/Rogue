@@ -394,6 +394,15 @@ class Program [essential singleton]
                 local t = get_type_reference( templ.t, templ.name )
                 t.configure
               endIf
+            elseIf (not templ.type_parameters)
+              local t = get_type_reference( templ.t, templ.name )
+              t.configure
+              forEach (m in t.method_list)
+                if (m.is_api)
+                  make_fully_essential(t)
+                  escapeForEach
+                endIf
+              endForEach
             endIf
             if ((templ.is_essential) and not templ.type_parameters)
               get_type_reference( templ.t, templ.name ).resolve
