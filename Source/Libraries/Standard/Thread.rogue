@@ -180,7 +180,7 @@ inline void roguethread_simple_spin_unlock(int volatile *p)
 endNativeCode
 
 
-$if (DEBUG)
+$if optional(DEBUG)
   nativeCode
     #define ROGUE_THREAD_DEBUG_STATEMENT(_s) _s
   endNativeCode
