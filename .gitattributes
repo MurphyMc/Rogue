@@ -1,2 +1,4 @@
 Source/RogueC/Bootstrap/RogueC.h -diff linguist-generated=true
 Source/RogueC/Bootstrap/RogueC.cpp -diff linguist-generated=true
+Source/RogueC/Build/RogueC.cpp -diff linguist-generated=true
+Source/RogueC/Build/RogueC.h -diff linguist-generated=true
