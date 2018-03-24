@@ -3833,7 +3833,7 @@ class CmdComparison : CmdBinary
       return this
 
     method requires_parens->Logical
-      return false
+      return true
 
     method resolve_for_reference( scope:Scope, left_type:Type, right_type:Type, force_error=true:Logical )->Cmd
       throw t.error( "[INTERNAL] $.resolve_for_reference() is undefined." )
