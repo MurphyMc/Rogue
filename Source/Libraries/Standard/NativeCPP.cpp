@@ -745,6 +745,8 @@ RogueObject* RogueType_singleton( RogueType* THIS )
     ROGUE_SINGLETON_UNLOCK;
 
     if ((fn = THIS->init_fn)) r = fn( THIS->_singleton );
+
+    ROGUE_INCREF(r);
   }
 
   return r;
