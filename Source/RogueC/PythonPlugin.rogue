@@ -6,7 +6,6 @@ TODO
   wrappers.
 - Force to_Strings to be essential?
 - Have PyClass gather definitions and enumerations
-- Support compounds
 - Support more types of CmdAccess for default arguments (except just Global)
 - Convert readers to iterators?
 - Make more useful stuff essential? (e.g., table.count)
@@ -48,7 +47,8 @@ class PyMethod
     pyname : String            # Name of method to expose to Python
     pyclass : String           # Name of class on which this method resides (or null for free functions)
     return_converter = "" : String  # Python code to convert Rogue return value to Python return value
-    call_args = String[]       # Python code to construct each argument in a call to the Rogue code
+    _call_args = String[]      # Python code to construct each argument in a call to the Rogue code
+    _call_args_done = false    # _call_args's creation is deferred.  True if it's finished.
 
     # Stuff for Functions
     cproto_params = String[]   # Python/C versions of each type in the param list of the Rogue function
@@ -60,6 +60,10 @@ class PyMethod
     is_initializer : Logical
 
     is_static_method : Logical
+
+    builder : PyClass
+
+    is_boxed : Logical         # True if this was "inherited" from a compound
 
     is_compound : Logical      # Method takes or returns compounds
 
@@ -87,11 +91,13 @@ class PyMethod
       if (pyclass) return "$.$" (pyclass, pyname)
       return pyname
 
-    method init ( builder:PyClass, context:Type, m:Method, static_dispatch=false:Logical, force=false:Logical )
+    method init ( builder, context:Type, m:Method, static_dispatch=false:Logical, force=false:Logical )
       if (m.is_task) return this
       if (m.is_abstract) return this
       if (m.is_task_conversion) return this
       if (m.omit_output and not force) return this
+
+      if (static_dispatch) is_static_method = true
 
       # Basic setup
       pyname = m.name.before_first("<")
@@ -185,18 +191,8 @@ class PyMethod
 
         local a = builder.get_py_to_c(param.type)
         if (a == "") return this
-        call_args.add a.replacing("%", get_param_name(param))
+        _call_args.add a.replacing("%", get_param_name(param))
       endForEach
-
-      if (static_dispatch)
-        is_static_method = true
-      elseIf (is_compound)
-        call_args.insert( "(check_type2(self, $))" (builder.pytype) )
-      else
-        call_args.insert( "(check_type(self, $))" (builder.pytype) )
-        # Probably don't need to check type for the this pointer...
-        #cproto_params.add( context.cpp_class_name + "*" )
-      endIf
 
       # Fix defaults so they're all on the right.  This may mean the Python
       # bindings require more parameters than in Rogue.
@@ -217,6 +213,21 @@ class PyMethod
 
     method hash_code->Int32
       return this->String.hash_code
+
+    method call_args()->String[]
+      if (not _call_args_done)
+        if (is_static_method)
+          noAction
+        elseIf (is_compound)# or m.is_boxed)
+          _call_args.insert( "(check_type2(self, $))" (builder.pytype) )
+        else
+          _call_args.insert( "(check_type(self, $))" (builder.pytype) )
+          # Probably don't need to check type for the this pointer...
+          #cproto_params.add( context.cpp_class_name + "*" )
+        endIf
+        _call_args_done = true
+      endIf
+      return _call_args
 endClass
 
 
@@ -436,6 +447,20 @@ class PyClass
 
   method to -> String
     return "($:$)" (type_name, type)
+
+  method is_box -> Logical
+    # This is hacky
+    return boxed_type is not null
+
+  method boxed_type -> Type
+    # This is hacky
+    forEach (b in type.base_types)
+      if (b.name == "Boxed")
+        local p = type.find_property("value")
+        if (p) return p.type
+      endIf
+    endForEach
+    return null
 endClass
 
 
@@ -773,6 +798,7 @@ augment Program
                    |$essential TypeInfo.set_global_property
                    |$essential Introspector
                    |$essential Introspector.get
+                   |$essential Introspector.call
                    |# There's no real good reason for PyRogue_ICall except that
                    |# the Python overload mechanism doesn't seem to find the
                    |# right overload of MethodInfo.call().  If we fixed that,
@@ -1506,6 +1532,17 @@ augment Program
                       |  mi = ti.find_global_method(sig, None)
                       |  return getattr(Global.singleton._PyRogue_ICall(mi, arglist), 'value', None)
                       |
+                      |def _call_boxed_introspectively (sig, *args):
+                      |  arglist = ValueList()
+                      |  for arg in args:
+                      |    arglist.add(Value.create(arg))
+                      |  ti = args[0].type_info()
+                      |  bti = args[0]._static_boxed_type_info()
+                      |  mi = bti.find_method(sig, None)
+                      |  intro = Introspector(args[0])
+                      |  r = intro.call(mi, arglist)
+                      |  return getattr(r, 'value', None)
+                      |
                       |def _call_overload (target, num, args, kw):
                       |  candidates = []
                       |  for o in _overloads[num]:
@@ -1612,7 +1649,7 @@ augment Program
         local printed_comment = false
         forEach (fi in cyclass.funcs.value_reader)
           forEach (f in fi)
-            if (f.is_compound) nextIteration
+            if (f.is_compound or f.is_boxed) nextIteration
             local m = f.real_method
             local sig = f.cname
             if (signatures.contains(sig)) nextIteration
@@ -1736,7 +1773,6 @@ augment Program
           fname = "$_$_" (fname, fnum)
           if (not fname.begins_with("_")) fname = "_" + fname # Don't double-underscore a method name
         endIf
-
         local params = String[]
 
         if (f.is_static_method)
@@ -1752,7 +1788,9 @@ augment Program
           args = args.cloned()
           args.insert("'$'" (f.real_method.signature))
 
-          if (f.is_static_method)
+          if (f.is_boxed)
+            cname = "_call_boxed_introspectively"
+          elseIf (f.is_static_method)
             args.insert( cyclass.type.index )
             cname = "_call_global_introspectively"
           else
@@ -1931,10 +1969,9 @@ augment Program
       # comes before all of its child classes.
       forEach (cyclass in py_sort_cyclasses(cyclasses))
         writer.println "# --- Wrapper for Class $ ---" (cyclass.pytype)
-        local boxed = false
+        local boxed = cyclass.boxed_type
         local bases = String[]
         forEach (b in cyclass.type.base_types)
-          if (b.name == "Boxed") boxed = true #TODO: Do this in a cleaner way
           if (cyclasses.contains(b))
             bases.add(cyclasses[b].pytype)
           endIf
@@ -1945,16 +1982,20 @@ augment Program
 
         writer.println "@_total_ordering"
         writer.println "class $ ($):" (cyclass.pytype, base)
-        writer.println "  _rogue_type_index_ = $" (cyclass.type.index)
-        if (boxed)
-          local p = cyclass.type.find_property("value")
-          if (p)
-            writer.println "  _rogue_boxed_type_index_ = $" (p.type.index)
-          endIf
+        writer.indent+=2
+
+        writer.println "_rogue_type_index_ = $" (cyclass.type.index)
+        writer.println @|@classmethod
+                        |def _static_type_info (cls):
+                        |  return TypeInfo.get(cls._rogue_type_index_)
+
+        if (cyclass.is_box)
+          writer.println "_rogue_boxed_type_index_ = $" (cyclass.boxed_type.index)
+          writer.println @|@classmethod
+                          |def _static_boxed_type_info (cls):
+                          |  return TypeInfo.get(cls._rogue_boxed_type_index_)
         endIf
-        writer.println @|  @classmethod
-                        |  def _static_type_info (cls):
-                        |    return TypeInfo.get(cls._rogue_type_index_)
+
 
         if cyclass.type.is_function
           local pydelegate = py_delegate_to_pydelegate[cyclass.type]
@@ -1967,7 +2008,7 @@ augment Program
             #TODO: Support Python/Rogue marshalling of compounds!
           endIf
         endIf
-        writer.indent+=2
+
         if cyclass.type.is_singleton
           writer.println "singleton = _SingletonDescriptor(lambda:$(__pyrogue_new_instance=_lib.RogueType_singleton(_lib.pyrogue_get_type($._rogue_type_index_))))" (cyclass.pytype, cyclass.pytype)
         endIf
@@ -1986,7 +2027,7 @@ augment Program
         if (cyclass.funcs) writer.println("# --- Method wrappers ---")
         forEach (fi in cyclass.funcs.value_reader)
           local constructor = fi[0].is_initializer
-          local overloading = fi.count > 1 or constructor or cyclass.compound_funcs.contains(fi[0].cname)
+          local overloading = fi.count > 1 or constructor or cyclass.compound_funcs.contains(fi[0].cname) or fi[0].is_boxed
           # We always overload constructors.  Why?  I don't remember anymore!
           # We also always overload functions that use compounds, because only
           # the overload machinery knows how to actually call them (they can't
@@ -2002,7 +2043,7 @@ augment Program
           local must_write = false
           forEach f in fi
             local m = f.real_method
-            if cyclass.type is m.type_context
+            if cyclass.type is m.type_context or f.is_boxed
               # It's implemented here.  We need to write.
               must_write = true
               escapeForEach
@@ -2075,6 +2116,27 @@ augment Program
       endForEach
 
       if (cyclasses.count == 0) return
+
+      # Box types should "inherit" methods from the inner
+      forEach ((name,t) in cyclasses.reader)
+        local boxed = t.boxed_type
+        if (boxed is null) nextIteration
+        local pyboxed = PyClass(boxed, true, false)
+        forEach ((fname,ms) in pyboxed.funcs.reader)
+          if (t.funcs.contains(fname)) nextIteration
+          if (t.properties.contains(fname)) nextIteration
+          if (not t.funcs.contains(fname)) t.funcs[fname] = PyMethod[]
+          t.compound_funcs.add(fname)
+          forEach (m in ms)
+            m.is_boxed = true
+            if (not m.is_static_method) m.is_compound = true
+            m.pyclass = t.pytype
+            t.funcs[fname].add(m)
+          endForEach
+        endForEach
+      endForEach
+      #TODO: Should we "inherit" properties the same way?  Currently
+      #      they are handled independently (elsewhere).
 
       println "Writing $.py..." (filepath)
       local writer = CPPWriter( filepath + ".py" )
