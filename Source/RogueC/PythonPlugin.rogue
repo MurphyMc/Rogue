@@ -61,6 +61,8 @@ class PyMethod
 
     is_static_method : Logical
 
+    is_compound : Logical      # Method takes or returns compounds
+
     valid : Logical
 
     defaults = String[]        # Default values of params
@@ -108,13 +110,6 @@ class PyMethod
       pyname = builder.fix_name(pyname)
       if (pyname == "") return this
 
-      if (static_dispatch)
-        is_static_method = true
-      else
-        call_args.add( "(check_type(self, $))" (builder.pytype) )
-        # Probably don't need to check type for the this pointer...
-        #cproto_params.add( context.cpp_class_name + "*" )
-      endIf
       cproto_params.add( "PyRogueDelegateContextPtr" )
 
       # Return type
@@ -126,6 +121,8 @@ class PyMethod
         return_converter = builder.get_c_to_py(m.return_type)
         if (return_converter == "") return this # Not supported
         cproto_return = builder.get_ct_type(m.return_type)
+
+        is_compound = is_compound or m.return_type.is_compound
       endIf
 
       # Arguments
@@ -179,6 +176,8 @@ class PyMethod
           endIf
         endIf
 
+        is_compound = is_compound or param.type.is_compound
+
         py_types.add( builder.get_p_type(param.type) )
 
         py_params.add( get_param_name(param) )
@@ -188,6 +187,16 @@ class PyMethod
         if (a == "") return this
         call_args.add a.replacing("%", get_param_name(param))
       endForEach
+
+      if (static_dispatch)
+        is_static_method = true
+      elseIf (is_compound)
+        call_args.insert( "(check_type2(self, $))" (builder.pytype) )
+      else
+        call_args.insert( "(check_type(self, $))" (builder.pytype) )
+        # Probably don't need to check type for the this pointer...
+        #cproto_params.add( context.cpp_class_name + "*" )
+      endIf
 
       # Fix defaults so they're all on the right.  This may mean the Python
       # bindings require more parameters than in Rogue.
@@ -264,6 +273,7 @@ class PyClass
     type : Type
     funcs = Table<<String, PyMethod[]>>()
     properties = Table<<String, PyProperty>>()
+    compound_funcs = Set<<String>>() # Methods which take/return compounds
 
   GLOBAL PROPERTIES
     ctypes : Table<<String, String>> # RogueType -> C type
@@ -358,7 +368,7 @@ class PyClass
       # empty string if there is no such type.
       if (type is null) return ""
       if (type.is_array) return ""
-      if (type.is_compound) return ""
+#      if (type.is_compound) return ""
       local pytype = type.name
       if pytype.ends_with("[]")
         return type.cpp_name
@@ -367,6 +377,8 @@ class PyClass
         return type.cpp_name
       elseIf pytype.contains("(")
         return type.cpp_name
+      elseIf type.is_optional
+        return ""
       endIf
       return type.name
 
@@ -391,6 +403,7 @@ class PyClass
         local dname = f.pyname
         if (not funcs.contains(dname)) funcs[dname] = PyMethod[]
         funcs[dname].add(f)
+        if (f.is_compound) compound_funcs.add(f.cname)
       endForEach
 
       forEach (m in type.method_list)
@@ -400,6 +413,7 @@ class PyClass
         local dname = f.pyname
         if (not funcs.contains(dname)) funcs[dname] = PyMethod[]
         funcs[dname].add(f)
+        if (f.is_compound) compound_funcs.add(f.cname)
       endForEach
 
       if do_properties
@@ -473,10 +487,12 @@ augment Program
                       |ROGUE_EXPORT_C size_t pyrogue_string_byte_count (RogueString * str);
                       |ROGUE_EXPORT_C RogueType * pyrogue_get_type (int type_index);
                       |ROGUE_EXPORT_C bool pyrogue_type_is_reference (int type_index);
+                      |ROGUE_EXPORT_C bool pyrogue_type_is_compound (int type_index);
                       |ROGUE_EXPORT_C int pyrogue_get_property_offset (int type_index, int property_index);
                       |ROGUE_EXPORT_C int pyrogue_get_property_type_index (int type_index, int property_index);
                       |ROGUE_EXPORT_C int pyrogue_get_property_count (int type_index);
                       |ROGUE_EXPORT_C void * pyrogue_get_property_name (int type_index, int property_index);
+                      |ROGUE_EXPORT_C bool pyrogue_get_global_property_info (int type_index, int property_index, void ** name, int * property_type_index, const void ** ptr);
                       |
                       |#ifdef PYROGUE_PYPY_COMPATIBLE
                       |  #define PYROGUE_XINCREF pyrogue_retain
@@ -563,6 +579,15 @@ augment Program
                       |  }
                       |  return false;
                       |}
+                      |bool pyrogue_type_is_compound (int type_index)
+                      |{
+                      |  switch (Rogue_types[type_index].attributes & ROGUE_ATTRIBUTE_TYPE_MASK)
+                      |  {
+                      |    case ROGUE_ATTRIBUTE_IS_COMPOUND:
+                      |      return true;
+                      |  }
+                      |  return false;
+                      |}
                       |int pyrogue_get_property_offset (int type_index, int property_index)
                       |{
                       |  if (!Rogue_types[type_index].property_offsets) return -1;
@@ -580,7 +605,14 @@ augment Program
                       |{
                       |  return Rogue_types[type_index].property_count;
                       |}
-                      |
+                      |bool pyrogue_get_global_property_info (int type_index, int property_index, void ** name, int * property_type_index, const void ** ptr)
+                      |{
+                      |  if (property_index >= Rogue_types[type_index].global_property_count) return false;
+                      |  *name = Rogue_literal_strings[Rogue_types[type_index].global_property_name_indices[property_index]];
+                      |  *property_type_index = Rogue_types[type_index].global_property_type_indices[property_index];
+                      |  *ptr = Rogue_types[type_index].global_property_pointers[property_index];
+                      |  return true;
+                      |}
                       |
                       |extern "C" int pyrogue_is_pypy_compatible ()
                       |{
@@ -719,7 +751,7 @@ augment Program
         endIf
       endForEach
 
-    method py_inject_rogue_classes
+    method py_inject_rogue_code
       # We smash in some new Rogue code.  This should probably be included
       # from the Rogue Python library, but that doesn't exist yet. :)
       local src = @|class PyRogueError : Error [essential]
@@ -731,6 +763,23 @@ augment Program
                    |    method init (exc_type, exc_value, exc_traceback) [essential]
                    |      prior.init("Python $: $" (exc_type, exc_value))
                    |endClass
+                   |$essential MethodInfo.call
+                   |$essential MethodInfo.signature
+                   |$essential MethodInfo.name
+                   |$essential TypeInfo
+                   |$essential TypeInfo.find_method
+                   |$essential TypeInfo.find_global_method
+                   |$essential TypeInfo.global_property
+                   |$essential TypeInfo.set_global_property
+                   |$essential Introspector
+                   |$essential Introspector.get
+                   |# There's no real good reason for PyRogue_ICall except that
+                   |# the Python overload mechanism doesn't seem to find the
+                   |# right overload of MethodInfo.call().  If we fixed that,
+                   |# we could call it directly instead of using this.
+                   |routine _PyRogue_ICall (mi:MethodInfo, args:Value)->Value
+                   |  return mi.call(args)
+                   |endRoutine
       Parser( "(compiler-generated-error)", src ).parse_elements
 
     method py_create_delegates->Logical
@@ -882,7 +931,7 @@ augment Program
         py_plugin.on_finish_header_file( this=>py_on_header_end )
         py_plugin.on_finish_code_file( this=>py_on_code_end )
 
-        py_inject_rogue_classes()
+        py_inject_rogue_code()
       endIf
 
     method py_write_py_header (writer:CPPWriter, filepath:String)
@@ -895,6 +944,7 @@ augment Program
                       |
                       |_is_py2 = sys.version_info.major == 2
                       |_is_py3 = not _is_py2
+                      |if _is_py3: long = int
                       |
                       |def _total_ordering (cls):
                       |  try:
@@ -1044,6 +1094,8 @@ augment Program
                       |_conf_func(_lib.pyrogue_get_property_type_index, ctypes.c_int, ctypes.c_int, ctypes.c_int)
                       |_conf_func(_lib.pyrogue_get_property_count, ctypes.c_int, ctypes.c_int)
                       |_conf_func(_lib.pyrogue_get_property_name, _RogueStringPtr, ctypes.c_int, ctypes.c_int)
+                      |_conf_func(_lib.pyrogue_get_global_property_info, ctypes.c_bool, ctypes.c_int, ctypes.c_int,
+                      |           ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_void_p))
                       |
                       |_conf_func(_lib.pyrogue_string_is_ascii, ctypes.c_bool, _RogueStringPtr)
                       |_conf_func(_lib.pyrogue_string_utf8, _char_ptr, _RogueStringPtr)
@@ -1140,6 +1192,10 @@ augment Program
                       |def check_type (o, t):
                       |  if isinstance(o, t): return o.thisptr
                       |  raise RuntimeError("Object %s is not of type %s" % (o, t))
+                      |def check_type2 (o, t):
+                      |  if not isinstance(o, t):
+                      |    raise RuntimeError("Object %s is not of type %s" % (o, t))
+                      |  return o
                       |
                       |_rogue_type_index_to_pyclass = {}
                       |def get_wrapper (raw_object_ptr):
@@ -1193,6 +1249,23 @@ augment Program
                       |    return (lambda self: get_wrapper(accessor(self)),
                       |            lambda self,value: mutator(self, _cast_mutator_value(value, ref)))
                       |
+                      |  # We could probably make these much faster by caching the Introspector
+                      |  def _make_i_accessors (prop, offset, boxed_type):
+                      |    def accessor (self):
+                      |      intro = Introspector(None, self.thisptr.value + offset, boxed_type)
+                      |      return intro.get(prop).value
+                      |    def mutator (self, value):
+                      |      intro = Introspector(None, self.thisptr.value + offset, boxed_type)
+                      |      intro.set(prop, Value.create(value))
+                      |    return (accessor,mutator)
+                      |
+                      |  def _make_global_i_accessors (ti, name):
+                      |    def accessor ():
+                      |      return ti.global_property(name).value
+                      |    def mutator (value):
+                      |      ti.set_global_property(name, Value.create(value))
+                      |    return (accessor,mutator)
+                      |
                       |  if _is_py3:
                       |    xxrange = range
                       |    classiter = _rogue_type_index_to_pyclass.items()
@@ -1206,16 +1279,46 @@ augment Program
                       |      o = _lib.pyrogue_get_property_offset(i, pi)
                       |      if o == -1: continue # It should be an aspect
                       |      ti = _lib.pyrogue_get_property_type_index(i, pi)
-                      |      if _lib.pyrogue_type_is_reference(ti):
-                      |        ref = ti
-                      |        ct = ctypes.POINTER(_RogueObjectPtr)
+                      |      if _lib.pyrogue_type_is_compound(ti):
+                      |        tti = TypeInfo.get(i)
+                      |        ppi = tti.properties[pi]
+                      |        acc = _make_i_accessors(ppi, 0, tti)
                       |      else:
-                      |        ref = None
-                      |        tt = _lib.pyrogue_get_type(ti)
-                      |        tn = pyrogue_get_string(_lib.RogueType_name(tt))
-                      |        ct = ctypes.POINTER(_tn_to_ct.get(tn))
-                      |        if ct is None: continue
-                      |      setattr(t, n, property(*_make_accessors(n, ct, o, ref)))
+                      |        if _lib.pyrogue_type_is_reference(ti):
+                      |          ref = ti
+                      |          ct = ctypes.POINTER(_RogueObjectPtr)
+                      |        else:
+                      |          ref = None
+                      |          tt = _lib.pyrogue_get_type(ti)
+                      |          tn = pyrogue_get_string(_lib.RogueType_name(tt))
+                      |          ct = ctypes.POINTER(_tn_to_ct.get(tn))
+                      |          if ct is None: continue
+                      |        acc = _make_accessors(n, ct, o, ref)
+                      |      if not hasattr(t, n):
+                      |        setattr(t, n, property(*acc))
+                      |
+                      |      # Now do properties of boxed compounds using introspection API
+                      |      if issubclass(t, Boxed) and t is not Boxed and n == 'value':
+                      |        ti = TypeInfo.get(t._rogue_boxed_type_index_)
+                      |        for p in ti.properties:
+                      |          if hasattr(t, p.name()): continue
+                      |          setattr(t, p.name(), property(*_make_i_accessors(p, o, ti)))
+                      |
+                      |    # Set up global (static) properties on this class -- compounds only
+                      |    # We use the introspection API for this.  Global properties which
+                      |    # not compound types are handled by py_write_property().
+                      |    pi = 0
+                      |    o = ctypes.c_void_p()
+                      |    ti = ctypes.c_int()
+                      |    n = ctypes.c_void_p()
+                      |    while _lib.pyrogue_get_global_property_info(i, pi, n, ti, o):
+                      |      pi += 1
+                      |      if not _lib.pyrogue_type_is_compound(ti): continue
+                      |      nn = pyrogue_get_string(n)
+                      |      # The next line bypasses normal attr lookup since it may be overridden
+                      |      if nn in t.__dict__: continue
+                      |      tti = TypeInfo.get(i)
+                      |      setattr(t, nn, _StaticProperty(*_make_global_i_accessors(tti, nn)))
                       |
                       |# Method overload machinery
                       |class OverloadException (RuntimeError):
@@ -1284,8 +1387,11 @@ augment Program
                       |_M_PERFECT = 4
                       |_M_WIDEN = 3
                       |_M_NARROW = 1
+                      |@_total_ordering
                       |class _Overload (object):
+                      |  _index = 0
                       |  def __init__ (self, types, keywords, defaults, func, static):
+                      |    _Overload._index += 1
                       |    self.num_args = len(keywords)
                       |    self.types = types
                       |    self.keywords = keywords
@@ -1298,6 +1404,10 @@ augment Program
                       |        defaults[i] = _NO_DEFAULT
                       |      elif defaults[i] is _NO_DEFAULT:
                       |        nodefault = True
+                      |  def __lt__ (self, other):
+                      |    return self._index < other._index
+                      |  def __eq__ (self, other):
+                      |    return self._index == other._index
                       |  @property
                       |  def max_args_count (self):
                       |    return self.num_args
@@ -1319,8 +1429,8 @@ augment Program
                       |      if type(arg) is int: return _M_PERFECT # Close enough, and there's no better
                       |    elif param_type is Real64:
                       |      if type(arg) is float: return _M_PERFECT
-                      |      if type(arg) is int: return _M_WIDEN #?
                       |      if type(arg) is long: return _M_NARROW
+                      |      if type(arg) is int: return _M_WIDEN #?
                       |    elif param_type is Real32:
                       |      if type(arg) is float: return _M_NARROW
                       |      if type(arg) is int: return _M_NARROW
@@ -1379,6 +1489,22 @@ augment Program
                       |      #import traceback
                       |      #traceback.print_exc()
                       |      return False,False
+                      |
+                      |def _call_introspectively (sig, *args):
+                      |  arglist = ValueList()
+                      |  for arg in args:
+                      |    arglist.add(Value.create(arg))
+                      |  ti = args[0].type_info()
+                      |  mi = ti.find_method(sig, None)
+                      |  return getattr(Global.singleton._PyRogue_ICall(mi, arglist), 'value', None)
+                      |
+                      |def _call_global_introspectively (type_index, sig, *args):
+                      |  arglist = ValueList()
+                      |  for arg in args:
+                      |    arglist.add(Value.create(arg))
+                      |  ti = TypeInfo.get(type_index)
+                      |  mi = ti.find_global_method(sig, None)
+                      |  return getattr(Global.singleton._PyRogue_ICall(mi, arglist), 'value', None)
                       |
                       |def _call_overload (target, num, args, kw):
                       |  candidates = []
@@ -1447,6 +1573,7 @@ augment Program
       forEach (cyclass in wrapped_types.value_reader)
         forEach (fi in cyclass.funcs.value_reader)
           forEach (f in fi)
+            if (f.is_compound) nextIteration
             local m = f.real_method
             local sig = m.cpp_typedef
             if (sig is null) nextIteration
@@ -1485,6 +1612,7 @@ augment Program
         local printed_comment = false
         forEach (fi in cyclass.funcs.value_reader)
           forEach (f in fi)
+            if (f.is_compound) nextIteration
             local m = f.real_method
             local sig = f.cname
             if (signatures.contains(sig)) nextIteration
@@ -1620,7 +1748,17 @@ augment Program
         local cname = f.cname
         local args = f.call_args
         #if f.real_method.is_overridden
-        if (not f.real_method.is_global)
+        if (f.is_compound)
+          args = args.cloned()
+          args.insert("'$'" (f.real_method.signature))
+
+          if (f.is_static_method)
+            args.insert( cyclass.type.index )
+            cname = "_call_global_introspectively"
+          else
+            cname = "_call_introspectively"
+          endIf
+        elseIf (not f.real_method.is_global)
           args = args.cloned()
           args.insert(f.real_method.index)
           cname = "_plib._PyRogue_call_" + f.real_method.cpp_typedef + "_"
@@ -1642,12 +1780,15 @@ augment Program
         forEach (s in f.prologue)
           writer.println s
         endForEach
+
         local call_code = "$($)" (cname, ", ".join(args))
+        #local call_code = "_call($$$)" (cname, which{args.count==0:"" || ", "}, ", ".join(args))
         if f.return_converter is null
           writer.println call_code
         else
           writer.println "return " + f.return_converter.replacing("%", call_code)
         endIf
+
         writer.indent-=2
         writer.println
       endForEach
@@ -1790,8 +1931,10 @@ augment Program
       # comes before all of its child classes.
       forEach (cyclass in py_sort_cyclasses(cyclasses))
         writer.println "# --- Wrapper for Class $ ---" (cyclass.pytype)
+        local boxed = false
         local bases = String[]
         forEach (b in cyclass.type.base_types)
+          if (b.name == "Boxed") boxed = true #TODO: Do this in a cleaner way
           if (cyclasses.contains(b))
             bases.add(cyclasses[b].pytype)
           endIf
@@ -1802,7 +1945,16 @@ augment Program
 
         writer.println "@_total_ordering"
         writer.println "class $ ($):" (cyclass.pytype, base)
-        writer.println  "  _rogue_type_index_ = $" (cyclass.type.index)
+        writer.println "  _rogue_type_index_ = $" (cyclass.type.index)
+        if (boxed)
+          local p = cyclass.type.find_property("value")
+          if (p)
+            writer.println "  _rogue_boxed_type_index_ = $" (p.type.index)
+          endIf
+        endIf
+        writer.println @|  @classmethod
+                        |  def _static_type_info (cls):
+                        |    return TypeInfo.get(cls._rogue_type_index_)
 
         if cyclass.type.is_function
           local pydelegate = py_delegate_to_pydelegate[cyclass.type]
@@ -1822,18 +1974,23 @@ augment Program
 
         # Properties (just the static ones)
         if (not cyclass.type.is_aspect) # Aspects don't really have properties
-          writer.println "# --- Property wrappers ---"
+          writer.println "# --- Static Property wrappers ---"
           forEach (p in cyclass.properties)
+            if (p.prop.type.is_compound) nextIteration # Compounds done in _config_properties
             py_write_property(writer, p)
           endForEach
         endIf
         writer.println
 
         # Iterate over each method name; write the method (and its overloads)
+        if (cyclass.funcs) writer.println("# --- Method wrappers ---")
         forEach (fi in cyclass.funcs.value_reader)
           local constructor = fi[0].is_initializer
-          local overloading = fi.count > 1 or constructor
+          local overloading = fi.count > 1 or constructor or cyclass.compound_funcs.contains(fi[0].cname)
           # We always overload constructors.  Why?  I don't remember anymore!
+          # We also always overload functions that use compounds, because only
+          # the overload machinery knows how to actually call them (they can't
+          # be called directly).
 
           # The methods in this class may be inherited, in which case we don't
           # need to write them here.  However, the overload mechanism doesn't
@@ -1884,6 +2041,11 @@ augment Program
         writer.indent-=2
 
         writer.println "_rogue_type_index_to_pyclass[$] = $" (cyclass.type.index, cyclass.pytype)
+
+        if (boxed and cyclass.pytype.begins_with("Boxed_") and cyclass.pytype.ends_with("_"))
+          local boxedname = cyclass.pytype.after_first("_").before_last("_")
+          writer.println "$ = $ # Alias the boxed name" (boxedname, cyclass.pytype)
+        endIf
       endForEach
 
       # Now we write the table full of overload information used by _call_overload()
