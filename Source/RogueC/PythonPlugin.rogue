@@ -895,6 +895,7 @@ augment Program
                       |
                       |_is_py2 = sys.version_info.major == 2
                       |_is_py3 = not _is_py2
+                      |if _is_py3: long = int
                       |
                       |def _total_ordering (cls):
                       |  try:
@@ -1284,8 +1285,11 @@ augment Program
                       |_M_PERFECT = 4
                       |_M_WIDEN = 3
                       |_M_NARROW = 1
+                      |@_total_ordering
                       |class _Overload (object):
+                      |  _index = 0
                       |  def __init__ (self, types, keywords, defaults, func, static):
+                      |    _Overload._index += 1
                       |    self.num_args = len(keywords)
                       |    self.types = types
                       |    self.keywords = keywords
@@ -1298,6 +1302,10 @@ augment Program
                       |        defaults[i] = _NO_DEFAULT
                       |      elif defaults[i] is _NO_DEFAULT:
                       |        nodefault = True
+                      |  def __lt__ (self, other):
+                      |    return self._index < other._index
+                      |  def __eq__ (self, other):
+                      |    return self._index == other._index
                       |  @property
                       |  def max_args_count (self):
                       |    return self.num_args
@@ -1319,8 +1327,8 @@ augment Program
                       |      if type(arg) is int: return _M_PERFECT # Close enough, and there's no better
                       |    elif param_type is Real64:
                       |      if type(arg) is float: return _M_PERFECT
-                      |      if type(arg) is int: return _M_WIDEN #?
                       |      if type(arg) is long: return _M_NARROW
+                      |      if type(arg) is int: return _M_WIDEN #?
                       |    elif param_type is Real32:
                       |      if type(arg) is float: return _M_NARROW
                       |      if type(arg) is int: return _M_NARROW
