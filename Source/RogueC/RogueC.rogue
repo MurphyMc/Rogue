@@ -21,7 +21,6 @@ $essential Time.*
 
 $include "Attributes.rogue"
 $include "CPPWriter.rogue"
-$include "CythonPlugin.rogue"
 $include "PythonPlugin.rogue"
 $include "CloneArgs.rogue"
 $include "Cmd.rogue"
@@ -113,7 +112,7 @@ $endIf
     # If true, all files in command line will be api
 
     all_methods_callable_dynamically = false
-    # When true, all methods can be called dynamically. Set by the Python and Cython plug-ins.
+    # When true, all methods can be called dynamically. Set by the Python plug-in.
 
     todo_keywords = ["FIXME"]
     # Lines with comments containing the given keywords will be printed during compilation.
@@ -333,7 +332,7 @@ $endIf
 
           usage += @|    Specify one or more compile targets that are used with conditional code
                     |    compilation ('$if target("C++") ...').  C++ is the only supported
-                    |    language target.  "Python" and "Cython" are optional plug-in targets.
+                    |    language target.  "Python" is an optional plug-in target.
                     |    Arbitrary platforms may be added at will, e.g. "iOS", "macOS", etc.
                     |    Default:
 
