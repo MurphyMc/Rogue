@@ -1481,11 +1481,15 @@ augment Program
                       |    return self.max_args_count - num_with_defaults
                       |  def keyword_index (self, kw):
                       |    return self.keywords.index(kw)
-                      |  def is_compatible (self, arg, param_type):
+                      |  def is_compatible (self, arg, param_type, careful):
                       |    # The match system is a bit funny, but I didn't immediately
                       |    # have better ideas given the availability of types in
                       |    # Python and Rogue.
-                      |    if isinstance(arg, param_type): return _M_PERFECT
+                      |    if isinstance(arg, param_type):
+                      |      if (not careful) or type(arg) == param_type: return _M_PERFECT
+                      |
+                      |      # This is very bad.
+                      |      return _M_PERFECT - min(type(arg).mro().index(param_type) / 1000.0, .999)
                       |    if param_type is Int32:
                       |      if type(arg) is int: return _M_PERFECT
                       |    elif param_type is Int64:
@@ -1517,7 +1521,7 @@ augment Program
                       |      s = "%s %s" % (self.types[i], n)
                       |      if self.defaults[i] != _NO_DEFAULT: n += "=" + self.defaults[i]
                       |    return ", ".join(r)
-                      |  def map_args (self, args, kws):
+                      |  def map_args (self, args, kws, careful=False):
                       |    # Checks if an overload is acceptable.
                       |    # Returns a match "score".  Higher is a closer match.  False if
                       |    # it flat out doesn't match.
@@ -1544,7 +1548,7 @@ augment Program
                       |            return False,False # Didn't have an argument or a default
                       |          mapping[i] = self.defaults[i]
                       |        else:
-                      |          arg_score = self.is_compatible(value, self.types[i])
+                      |          arg_score = self.is_compatible(value, self.types[i], careful=careful)
                       |          if arg_score is False: return False,False
                       |          score += arg_score
                       |      score /= float(self.max_args_count)
@@ -1603,6 +1607,16 @@ augment Program
                       |    else: argstr = "<Empty>"
                       |    raise OverloadException("No overload for compatible with given arguments: " + argstr)
                       |  candidates.sort()
+                      |  if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
+                      |    old = candidates
+                      |    candidates = []
+                      |    for c in old:
+                      |      if c[0] != old[0][0]: break
+                      |      o = c[-1]
+                      |      score,mapped = o.map_args(args, kw, careful=True)
+                      |      if mapped is not False:
+                      |        candidates.append((score,-o.max_args_count,mapped,o))
+                      |    candidates.sort()
                       |  _,_,mapped,o = candidates[-1]
                       |  if o.static:
                       |    return o.func(*mapped)
