@@ -1,4 +1,7 @@
 class Boxed [abstract]
+  GLOBAL METHODS
+    method static_type->TypeInfo [abstract]
+
   METHODS
     method address->IntPtr [abstract]
 
@@ -12,6 +15,10 @@ class Boxed [abstract]
 endClass
 
 class Boxed<<$DataType>>( value:$DataType ) : Boxed
+  GLOBAL METHODS
+    method static_type->TypeInfo
+      return <<$DataType>>
+
   METHODS
     method address->IntPtr
       return native( "(intptr_t)&$value" )->IntPtr
