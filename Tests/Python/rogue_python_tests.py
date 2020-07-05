@@ -26,7 +26,7 @@ class TestPythonBasics (unittest.TestCase):
   def test_rogue_globals (self):
     # Test Rogue globals
 
-    # Global routines are easily publically accessible
+    # Global routines are easily publicly accessible
     self.assertEqual(rogue_routine(), 121)
 
     # Properties are accessible using Global singleton
@@ -70,6 +70,16 @@ class TestPythonBasics (unittest.TestCase):
 
     f.prop_str = None
     self.assertIs(f.prop_str, None)
+
+  def test_rogue_global_properties (self):
+    self.assertEqual(f.gprop_int, 2000)
+    self.assertEqual(Foo.gprop_int, 2000)
+    f.gprop_int = 2001
+    self.assertEqual(f.gprop_int, 2001)
+    self.assertEqual(Foo.gprop_int, 2001)
+    Foo.gprop_int = 2002
+    self.assertEqual(f.gprop_int, 2002)
+    self.assertEqual(Foo.gprop_int, 2002)
 
 
 class TestPythonBindingsCalls (unittest.TestCase):
@@ -145,6 +155,14 @@ class TestPythonBindingsParameters (unittest.TestCase):
     self.assertEqual(f.f_over(32,None), "Int32,Object")
     self.assertEqual(f.f_over(32,b), "Int32,Object")
 
+  def test_global_method_overloading_on_instance (self):
+    self.assertEqual(f.gf_overload(), "Overload1")
+    self.assertEqual(f.gf_overload(1), "Overload2")
+
+  def test_global_method_overloading_on_class (self):
+    self.assertEqual(Foo.gf_overload(), "Overload1")
+    self.assertEqual(Foo.gf_overload(1), "Overload2")
+
 
 class TestPythonBindingsExceptions (unittest.TestCase):
   @classmethod
@@ -169,6 +187,87 @@ class TestPythonBindingsExceptions (unittest.TestCase):
 
     s = f.f_python_exception()
     self.assertTrue("This is from Python" in s)
+
+
+class TestPythonCompounds (unittest.TestCase):
+  @classmethod
+  def setUpClass (cls):
+    _configure()
+
+  def test_python_compound_create (self):
+    x = MyCompound.create()
+    self.assertEqual(x.cp_int, 43)
+
+    x = MyCompound.create(1,2,"3")
+    self.assertEqual(x.cp_int, 1)
+
+  def test_python_compound_create2 (self):
+    x = MyCompound.create()
+
+    x.cp_int = 4900
+    self.assertEqual(x.cp_int, 4900)
+    x.cp_str = "Test123"
+    self.assertEqual(x.cp_str, "Test123")
+    x.cp_str = None
+    self.assertEqual(x.cp_str, None)
+
+  def test_python_compound_global_property (self):
+    # Tests accessing properties which are compounds
+    self.assertTrue(Foo.gprop_comp.cp_real, 22)
+    f.gprop_comp.cp_real = 23 # Shouldn't work! (Only changes temporary)
+    self.assertTrue(Foo.gprop_comp.cp_real, 22)
+
+    x = f.gprop_comp
+    x.cp_real = 898.1
+    f.gprop_comp = x
+    self.assertTrue(Foo.gprop_comp.cp_real, 898.1)
+
+  def test_python_compound_property (self):
+    # Tests accessing properties which are compounds
+    self.assertTrue(f.prop_comp.cp_str, "ok")
+
+    f.prop_comp = f.gprop_comp
+    self.assertTrue(f.prop_comp.cp_str, "okay")
+
+  def test_python_method_returns_compound (self):
+    f.prop_str = "fruitbat"
+    x = f.f_compound_return()
+    self.assertEqual(x.cp_str, "fruitbat")
+
+  def test_python_method_takes_compound (self):
+    x = f.gprop_comp
+    x.cp_int += 1
+    v = x.cp_int
+    r = f.f_take_compound(x)
+    self.assertEqual(v, r)
+
+  def test_python_global_method_compounds (self):
+    Foo.gprop_int = 0
+
+    x = MyCompound.create(100,100,"100")
+    y = Foo.gf_compound(x)
+
+    self.assertEqual(Foo.gprop_int, 100)
+    self.assertEqual(x.cp_int, 100)
+    self.assertEqual(y.cp_int, 101)
+
+  def test_python_method_on_compound (self):
+    x = f.gprop_comp
+    x.cp_int = 99
+    x.cp_real = 0.5
+    self.assertEqual(x.f_c_sum(), 99.5)
+
+  def test_python_global_method_on_compound_no_compound (self):
+    x = f.gprop_comp
+    self.assertEqual(x.gf_int(3), 4)
+
+    self.assertEqual(MyCompound.gf_int(9), 10)
+
+  def test_python_global_method_on_compound (self):
+    x = f.gprop_comp
+    self.assertEqual(x.gf_compound(x, 9), 9 + f.gprop_comp.cp_int)
+
+    self.assertEqual(MyCompound.gf_compound(x, 9), 9 + f.gprop_comp.cp_int)
 
 
 if __name__ == "__main__":

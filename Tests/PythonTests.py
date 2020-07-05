@@ -119,7 +119,7 @@ def compile (mode):
     print("Attempting to build Python module...")
 
     compile_r = ("--debug --api --essential "
-                 "--target=Python ../Python/pytest.rogue".split())
+                 "--target=Python,PythonCompounds ../Python/pytest.rogue".split())
 
     if sys.platform == "darwin":
       compile_r = ["../../Programs/RogueC/RogueC-macOS"] + compile_r

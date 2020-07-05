@@ -7,7 +7,24 @@ routine rogue_routine ()->Int32
 endRoutine
 
 
+class MyCompound(cp_int=43:Int32, cp_real=1.0:Real32, cp_str="hi":String) [compound]
+  METHODS
+    method f_c_sum ()->Real64
+      return cp_int->Real64 + cp_real
+
+  GLOBAL METHODS
+    method gf_int (x : Int32)->Int32
+      return x + 1
+
+    method gf_compound (c : MyCompound, x : Int32)->Int32
+      return x + c.cp_int
+endClass
+
 class Foo [api]
+  GLOBAL PROPERTIES
+    gprop_comp = MyCompound(11,22,"okay")
+    gprop_int = 2000
+
   PROPERTIES
     prop_str = "hello"
     prop_int = 42
@@ -18,10 +35,21 @@ class Foo [api]
     prop_f_s_o : Function(String)->Object
     prop_f_i_s : Function(Int32)->String
     prop_f_exception : Function()
+    prop_comp = MyCompound(1,2,"ok")
 
   GLOBAL METHODS
     method gf_square (i : Int64) -> Int64
       return i*i
+
+    method gf_compound (c : MyCompound)->MyCompound
+      gprop_int = c.cp_int
+      c.cp_int += 1
+      return c
+
+    method gf_overload ()->String
+      return "Overload1"
+    method gf_overload (x:Int32)->String
+      return "Overload2"
 
   METHODS
     method f_ss (msg : String) -> String [api]
@@ -86,6 +114,16 @@ class Foo [api]
         return err->String
       endTry
       return ""
+
+    method f_compound_return () -> MyCompound
+      #println "Returning compound from:" + this + " prop_str:" + this.prop_str
+      local x = MyCompound()
+      x.cp_str = prop_str
+      return x
+
+    method f_take_compound (c : MyCompound) -> Int32
+      #println "Take compound:" + c.cp_int + " from:" + this + " prop_str:" + this.prop_str
+      return c.cp_int
 endClass
 
 
