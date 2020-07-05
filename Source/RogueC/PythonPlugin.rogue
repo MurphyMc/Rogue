@@ -330,6 +330,15 @@ class PyClass
         # This probably isn't general enough (list of lists?)
         return n.clipped(&right=2) + '_array'
       endIf
+      if n.ends_with("?")
+        # This is gross and heuristic-y and probably often wrong...
+        if n.begins_with("to_")
+          n = "to_Optional" + n.after_first("_").before_last("?")
+        else
+          n = "Optional" + n.before_last('?')
+        endIf
+        return n
+      endIf
       return n
 
     method get_ct_type ( t:Type ) -> String
