@@ -1,0 +1,16 @@
+# Special support for when compiling Python bindings
+
+$if (target("PythonCompounds"))
+  #$essential MethodInfo
+  $essential MethodInfo.call
+  $essential MethodInfo.signature
+  $essential MethodInfo.name
+  #$essential TypeInfo
+  $essential TypeInfo.find_method
+  $essential TypeInfo.find_global_method
+  $essential TypeInfo.global_property
+  $essential TypeInfo.set_global_property
+  #$essential Introspector
+  $essential Introspector.get
+  $essential Introspector.call
+$endIf
