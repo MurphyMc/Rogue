@@ -927,7 +927,7 @@ void Rogue_ignore_unused(T&) {}
         #include <spawn.h>
         #include <poll.h>
         #include <sys/wait.h>
-        extern char** environ;
+        extern "C" char** environ;
       #endif
       #ifdef ROGUE_PLATFORM_WINDOWS
         #define ROGUE_CONSOLE_FULL 0
